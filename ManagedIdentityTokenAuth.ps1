@@ -3,7 +3,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$resourceGroupName = "rg17"
+$resourceGroupName = "rg19"
 $tenantId = [System.Environment]::GetEnvironmentVariable('ACC_TID')      
 $adAppRepresentingApiName = "DemoOrgService-$resourceGroupName"
 $apiResourceUri = "api://demo-orgservice-$resourceGroupName"
@@ -12,15 +12,14 @@ $apiResourceUri = "api://demo-orgservice-$resourceGroupName"
 $adAppRepresentingApi = New-AzureADApplication -DisplayName $adAppRepresentingApiName -IdentifierUris $apiResourceUri -Oauth2AllowImplicitFlow $false
 
 # Clear out scopes created (stupidly) by New-AzureADApplication Cmdlet
-# TODO Check this - might be failing role inclusion
 # https://stackoverflow.com/a/62694506
-#$Scopes = New-Object System.Collections.Generic.List[Microsoft.Open.AzureAD.Model.OAuth2Permission]
-#$Scope = $adAppRepresentingApi.Oauth2Permissions | Where-Object { $_.Value -eq "user_impersonation" }
-#$Scope.IsEnabled = $false
-#$Scopes.Add($Scope)
-#Set-AzureADApplication -ObjectId $adAppRepresentingApi.ObjectID -Oauth2Permissions $Scopes
-#$EmptyScopes = New-Object System.Collections.Generic.List[Microsoft.Open.AzureAD.Model.OAuth2Permission]
-#Set-AzureADApplication -ObjectId $adAppRepresentingApi.ObjectID -Oauth2Permissions $EmptyScopes
+$Scopes = New-Object System.Collections.Generic.List[Microsoft.Open.AzureAD.Model.OAuth2Permission]
+$Scope = $adAppRepresentingApi.Oauth2Permissions | Where-Object { $_.Value -eq "user_impersonation" }
+$Scope.IsEnabled = $false
+$Scopes.Add($Scope)
+Set-AzureADApplication -ObjectId $adAppRepresentingApi.ObjectID -Oauth2Permissions $Scopes
+$EmptyScopes = New-Object System.Collections.Generic.List[Microsoft.Open.AzureAD.Model.OAuth2Permission]
+Set-AzureADApplication -ObjectId $adAppRepresentingApi.ObjectID -Oauth2Permissions $EmptyScopes
 
 # Create app role that our API will require for authorization
 $newAppRole = [Microsoft.Open.AzureAD.Model.AppRole]::new()
@@ -78,6 +77,8 @@ New-AzVm `
 	-Credential $Credential `
 	-UserData $userData
 
+# DON'T REQUEST A TOKEN YET
+
 # Run command to add packages
 Invoke-AzVMRunCommand -ResourceGroupName $resourceGroupName -Name $vmName -CommandId 'RunShellScript' -ScriptString 'sudo apt-get update && sudo apt-get install -y curl jq'
 
@@ -97,9 +98,5 @@ New-AzureADServiceAppRoleAssignment `
     -ResourceId $appServicePrincipalObjectId
 
 
-# Restart-AzVM -ResourceGroupName $resourceGroupName -Name $vmName
-
 # Request and display a token on VM for our API
 Invoke-AzVMRunCommand -ResourceGroupName $resourceGroupName -Name $vmName -CommandId 'RunShellScript' -ScriptString "curl ""http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=$apiResourceUri"" -H Metadata:true -s | jq '.access_token'"
-
-Get-AzureADServiceAppRoleAssignedTo -ObjectId $vmIdentityPrincipalId
