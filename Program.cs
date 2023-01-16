@@ -1,12 +1,53 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Identity.Web;
 using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddMicrosoftIdentityWebApi(builder.Configuration.GetSection("AzureAd"));
+var adConfig = builder.Configuration.GetSection("AzureAD");
+
+builder.Services.AddAuthentication()
+    .AddJwtBearer("TokensIssuedForThisApp", opts =>
+    {
+        // auth scheme for tokens issued for this service directly
+        opts.Audience = adConfig["ThisAppAudience"];
+        opts.Authority = $"https://login.microsoftonline.com/{adConfig["ThisAppTenantId"]}/";
+        opts.TokenValidationParameters.ValidateLifetime = false;
+    })
+    .AddJwtBearer("TokensIssuedForB2CApp", opts =>
+    {
+        // auth scheme for tokens issued for users of a trusted B2C app
+        opts.Audience = adConfig["B2CAppAudience"];
+        opts.Authority = adConfig["B2CAppAuthority"];
+        opts.TokenValidationParameters.ValidateLifetime = false;
+    });
+
+
+builder.Services.AddAuthorization(options =>
+{
+    // default policy if no policy applied by attribute - require auth by one of our schemes
+    options.DefaultPolicy = new AuthorizationPolicyBuilder()
+        .AddAuthenticationSchemes(new[] { "TokensIssuedForThisApp", "TokensIssuedForB2CApp" })
+        .RequireAuthenticatedUser()
+        .Build();
+
+    options.AddPolicy("GetKeysAccess", policy =>
+    {
+        // policy for users with tokens issued for this app with a specific AD app role
+        policy.AddAuthenticationSchemes(new[] { "TokensIssuedForThisApp" })
+            .RequireAuthenticatedUser()
+            .RequireRole("Get.Keys");
+    });
+
+    options.AddPolicy("B2CUsers", policy =>
+    {
+        // policy for users of the B2C app with a defined AD scope
+        policy.AddAuthenticationSchemes(new[] { "TokensIssuedForB2CApp" })
+            .RequireAuthenticatedUser()
+            .RequireClaim(ClaimConstants.Scope, "DFP.Access");
+    });
+});
 
 builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle

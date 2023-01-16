@@ -3,7 +3,12 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$resourceGroupName = "rg19"
+# set these variables
+$resourceGroupName = "--populate this--"
+$B2CApplicationId = "--populate this with Application (client) ID of B2C app--"
+$B2CAppAuthority = "--populate this--" # as per https://github.com/AzureAD/microsoft-authentication-library-for-dotnet/wiki/AAD-B2C-specifics#authority-for-a-b2c-tenant-and-policy
+# end set these
+
 $tenantId = [System.Environment]::GetEnvironmentVariable('ACC_TID')      
 $adAppRepresentingApiName = "DemoOrgService-$resourceGroupName"
 $apiResourceUri = "api://demo-orgservice-$resourceGroupName"
@@ -43,14 +48,19 @@ Write-Output "ClientId is $($adAppRepresentingApi.AppId)"
 New-AzResourceGroup -Name $resourceGroupName -Location 'UKSouth'
 
 
-# Create web app that will consume token
+# Create web app that will consume tokens
 $appServicePlanName = "$resourceGroupName-ASP"
 New-AzAppServicePlan -ResourceGroupName $resourceGroupName -Location "UK South" -Tier Free -NumberofWorkers 1 -Linux -Name $appServicePlanName -WorkerSize Small
 
 $appServiceAppName = "azureadprotectedapi-$resourceGroupName"
 az webapp create --resource-group $resourceGroupName --name $appServiceAppName --plan $appServicePlanName --deployment-container-image-name potomato/azureadprotectedapi
 
-$appServiceAppSettings = @{ AzureAd__Audience = $apiResourceUri; AzureAd__ClientId = $adAppRepresentingApi.AppId; AzureAd__TenantId = $tenantId }
+$appServiceAppSettings = @{
+    AzureAd__ThisAppAudience = $apiResourceUri;     # api Resource Uri = aud claim in tokens for this app
+    AzureAd__ThisAppTenantId = $tenantId;           # tenantID of app representing our api
+    AzureAd__B2CAppAudience = $B2CApplicationId;    # Application (client) ID of B2C app = aud claim for B2C tokens
+    AzureAd__B2CAppAuthority = $B2CAppAuthority;    # tenant and policy-specific URL for Azure AD B2C authority
+}
 Set-AzWebApp -ResourceGroupName $resourceGroupName -Name $appServiceAppName -AppSettings $appServiceAppSettings
 
 $apiHostname = (Get-AzWebApp -ResourceGroupName $resourceGroupName -Name $appServiceAppName).EnabledHostNames | Select -First 1
@@ -77,7 +87,8 @@ New-AzVm `
 	-Credential $Credential `
 	-UserData $userData
 
-# DON'T REQUEST A TOKEN YET
+# !! Don't request a token yet, or it will be granted without the necessary role and could be cached for a day
+# https://learn.microsoft.com/en-us/azure/active-directory/managed-identities-azure-resources/managed-identity-best-practice-recommendations#limitation-of-using-managed-identities-for-authorization
 
 # Run command to add packages
 Invoke-AzVMRunCommand -ResourceGroupName $resourceGroupName -Name $vmName -CommandId 'RunShellScript' -ScriptString 'sudo apt-get update && sudo apt-get install -y curl jq'
